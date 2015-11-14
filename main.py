@@ -9,6 +9,10 @@ Twitter statistics
 import os
 import json
 import time
+
+from ast import literal_eval
+from base64 import b64encode
+from base64 import b64decode
 from collections import Counter
 
 import oauth2
@@ -19,8 +23,10 @@ from auth_info import *
 #CONSUMER_SECRET = <secret>
 #ACCESS_TOKEN = <token>
 #ACCESS_TOKEN_SECRET = <token secret>
-from T_list import T_list
-from T_list2 import T_list2
+
+from test_ import T_list
+
+WORK_DIR = os.getcwd()
 
 ACCESS_RIGHTS = {'user', 'admin'}
 
@@ -91,8 +97,7 @@ class Stats(object):
 		'''
 
 		self._gen_stats(self._get_tweets())
-
-		#self.gen_stats(T_list)	# DUMMY DATA!!!
+		#self._gen_stats(T_list)	# TEST DATA!!!
 
 	def view(self):
 		'''
@@ -109,17 +114,42 @@ class Stats(object):
 	def load(self):
 		'''
 		Loads data from file (if it exists) and decripts it.
+
+		def reading(self):
+		    with open('deed.txt', 'r') as f:
+		        s = f.read()
+		        self.whip = ast.literal_eval(s)
 		'''
-		pass
+		try:
+			with open('{}/stats/{}.data'.format(WORK_DIR, self.word), 'r') as f:
+				encoded_str = f.read()
+
+			#decoded_str = b64decode(encoded_str)		# Decodes string
+			#print('>>>>'+decoded_str)
+			reconst_dict = json.loads(encoded_str) 	# Reconstructs original DICT
+			#print(reconst_dict)
+
+			if isinstance(reconst_dict, dict):
+				self._stats.update(reconst_dict)
+
+		except IOError:
+			print('No such file.\nCreating new statistics.\n')
+			self.refresh()
+
 
 	def save(self):
 		'''
 		Encripts data and saves it to file
 		'''
-		pass
+		path = '{}/stats/'.format(WORK_DIR)
+		if not os.path.exists(path):
+			os.makedirs(path)
 
+		with open('{}{}.data'.format(path, self.word), 'w+') as f:
+			f.write(unicode(json.dumps(self._stats)))
+		#	f.writelines( b64encode(str(self._stats)) )
 	
-	def _gen_stats(self, lst):
+	def _gen_stats(self, tweet_lst):
 		'''
 		Generate stats from the data by query
 		'''
@@ -135,8 +165,9 @@ class Stats(object):
 
 		stats = self._stats
 
-		for tweet in lst:
-			words = extract_words(tweet[u'text'])
+		for tweet in tweet_lst:
+
+			words = extract_words( tweet[u'text'].lower() )
 			stats['uniques'].update( Counter(words) )
 
 			stats['letters_per_word'].update( Counter([len(word) for word in words]) )
@@ -151,8 +182,6 @@ class Stats(object):
 
 			# Add some more sophisticated stats...
 
-		Stats.save_list(lst, self.word+'.py')
-
 	def _get_tweets(self):
 		'''
 
@@ -163,8 +192,8 @@ class Stats(object):
 		HTTP_METHOD='GET'
 		POST_BODY=''
 		HTTP_HEADERS=None
-		TWEETS_TO_GET = 100
-		RESULT_TYPE = 'recent' #'mixed'
+		TWEETS_TO_GET = 10
+		RESULT_TYPE = 'mixed'#'recent'
 		IDLE = 10	#seconds
 		ERROR_CODES = {	'400':'Bad Request',
 						'401':'Unauthorized',
@@ -186,9 +215,9 @@ class Stats(object):
 
 		client = self.user.client
 
-		# Get as much tweets as possible in time_interval
+		# Get as much tweets as possible during the time_interval
 		start_time = time.time()
-		Tweet_lst = []
+		tweet_lst = []
 
 		while (time.time() - start_time) <= self.time_interval:
 			print(time.time() - start_time)
@@ -199,29 +228,43 @@ class Stats(object):
 			if resp['status'] == '200':
 				if 'statuses' in response.keys():
 					#print(response['statuses'])
-					Tweet_lst.extend(response['statuses'])
+					tweet_lst.extend(response['statuses'])
 				else:
 					time.sleep(IDLE)
 			else :
 				print('Twitte API Error: [{code}]:{descr}'.format(code=resp['status'], descr=ERROR_CODES[resp['status']]))
 
-		return Tweet_lst
+		# ADD Remove duplicates
+
+		# Save list of tweets to file (for TEST mode)
+
+		#with open(os.path.join(WORK_DIR, self.word+'_.py'), 'w+') as f:
+		#	f.writelines('T_list=')
+		#	print>> f, tweet_lst
+
+		return tweet_lst
 
 	@staticmethod
-	def save_list(lst, file_name):
-		WORK_DIR = os.getcwd()
-		tweets_path = os.path.join(WORK_DIR, file_name)
+	def _encode(s):
 
-		with open(tweets_path, 'w+') as f:
-			for item in lst:
-				f.write(str(item))
+		return result
+	@staticmethod
+	def _decode(s):
+
+		return result
 
 
 
 cur_user = User('admin')
 
-stats = Stats('word', cur_user, 10)
+stats = Stats('test', cur_user, 32)
+
+stats = Stats('Dubai', cur_user, 2)
 
 stats.refresh()
 
+#stats.load()
+
 stats.view()
+
+stats.save()
