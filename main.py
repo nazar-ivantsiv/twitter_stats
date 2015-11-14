@@ -245,11 +245,11 @@ class Stats(object):
 		return tweet_lst
 
 	@staticmethod
-	def _encode(s):
+	def _encrypt(s):
 
 		return result
 	@staticmethod
-	def _decode(s):
+	def _decrypt(s):
 
 		return result
 
