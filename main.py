@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
+from __future__ import division
 
 '''
 Twitter statistics
@@ -14,6 +15,7 @@ from ast import literal_eval
 from base64 import b64encode
 from base64 import b64decode
 from collections import Counter
+from sys import stdout
 
 import oauth2
 
@@ -23,6 +25,7 @@ from auth_info import *
 #CONSUMER_SECRET = <secret>
 #ACCESS_TOKEN = <token>
 #ACCESS_TOKEN_SECRET = <token secret>
+from exclude import EXCLUDE_SET
 from test_ import T_list
 
 WORK_DIR = os.getcwd()
@@ -31,8 +34,6 @@ ACCESS_RIGHTS = {'user', 'admin'}
 
 TWEET_KEYS = {u'text', u'retweet_count',}
 TWEET_USER_KEYS = {u'followers_count', u'friends_count', u'lang', u'location'}
-
-DEFAULT_TWEET_LANG = 'en'
 
 class User(object):
 	'''
@@ -66,15 +67,15 @@ class Stats(object):
 	@decorator for class to give diff user rights
 	'''
 
-	def __init__(self, word, User, time_interval=60):
+	def __init__(self, word, User, time_interval=60, tweet_language='en'):
 		self.word = word
 		self.user = User
 		self.time_interval = time_interval
-		self.lang = DEFAULT_TWEET_LANG
+		self.lang = tweet_language
 		self._stats = {	'uniques': Counter(), 'letters_per_word': Counter(),
 						'origin': Counter(), 'global_retweets':0, 
-						'global_length':0, 'global_length_wws':0, 
-						'global_words_count':1, 'global_sentences':0}
+						'global_length':0, 'global_words_count':1, 
+						'global_sentences':0 }
 
 	@property
 	def uniques(self):
@@ -87,7 +88,7 @@ class Stats(object):
 	@property
 	def origin(self):
 		'''
-		Where are tweets from
+		Where are tweets from (time zone)
 		'''
 		return self._stats['origin']
 
@@ -103,25 +104,35 @@ class Stats(object):
 
 	def refresh(self):
 		'''
-		Get new Tweets and generate new stats for current word
+		Get new Tweets and generate new stats for current word. 
+		Saves this to file.
 		'''
-		self._gen_stats(T_list)
-		#self._gen_stats(self._get_tweets())
-		#self.save()
+		#self._gen_stats(T_list)
+		self._gen_stats(self._get_tweets())
+		self.save()
 
 	def view(self, print_dicts=1):
 		'''
 		Prints statistics in legible way
 		'''
+		print('Statistics on word: {}'.format(self.word.upper()) )
+		get_key = lambda x: x[1]	# Second element of tuple as sort key
+
 		for key ,value in sorted(self._stats.items()):
 			if isinstance(value, dict):
 				if print_dicts:
 					print(u'\n[{key}]:\n'.format(key=key))
 
-					for key2, value2 in sorted(value.items()):
+					for key2, value2 in sorted(value.items(), reverse=True, key=get_key):
 						print(u'{key}: {value}'.format(key=key2, value=value2))
+			elif isinstance(value, list):
+				print(u'\n[{}]:\n\n'
+						'{}'.format(key, ' '.join(value)))
 			else:
-				print(u'\n[{key}]: {value}'.format(key=key, value=value))
+				if isinstance(value, float):
+					print(u'\n[{key}]: {value:.2f}'.format(key=key, value=value))
+				else:
+					print(u'\n[{key}]: {value}'.format(key=key, value=value))
 
 	def load(self):
 		'''
@@ -170,84 +181,57 @@ class Stats(object):
 			Length of longest word: 9 characters
 			Avg. word length: 4.72
 			Avg. words per sentence: 18  
-
-			total length
-			w/o white-spaces - len(''.join(words))
-			len(words)
-			self-standing count('.') - sentences count
-			total words
-			unique words
-			length of words
-			total words / sentences
 		'''
-		EXCLUDE_SET = {'', 'http'}
 		BIAS = 20	# Max word len bias
-
-
-		def extract_words(s):
-			'''
-			Split string by white_space and Strips all the punctuation marks.
-			TODO:
-			Use Stemming. To generalize stats (requires external module).
-
-
-			'''
-			result = filter(lambda x: x != '', map(\
-				lambda x: x.strip('!%^&*()_+=-[]{}.,:;\'\"?'), s.split(' ')) )
-			return filter(lambda x: not x.count('http') ,result)
-
 
 		stats = self._stats
 
 		for tweet in tweet_lst:
 
-			words = extract_words( tweet[u'text'].lower() )
-
+			words = self.extract_words( tweet[u'text'].lower() )
+			# Unique words
 			stats['uniques'].update( Counter(words) )
-
+			# words count by length (letters per word)
 			stats['letters_per_word'].update( Counter([len(word) for word in words]) )
-
+			# time zones - origin of tweet
 			stats['origin'].update( Counter({tweet[u'user'][u'time_zone']:1}) )
-
+			# Global sum of all retweets
 			stats['global_retweets'] += int(tweet[u'retweet_count'])
-
-			stats['global_length']	+=  len(tweet)
-
-			stats['global_length_wws']	+= 	len(''.join(words))	
-
+			# Global tweets length
+			stats['global_length']	+=  len(tweet)	
+			# Global words count
 			stats['global_words_count'] += len(words)
-
-			stats['global_sentences'] += tweet[u'text'].count('. ')
-
-		tweets_count = len(tweet_lst)
+			# Global sentences count
+			stats['global_sentences'] += tweet[u'text'].count('.')
+		# Avoiding DIVISION by ZERO
+		if len(tweet_lst) <= 0:
+			tweets_count = 1
+		else:
+			tweets_count = len(tweet_lst)
 		# Remove too big words
 		stats['letters_per_word'] = \
 			{k:v for k,v in stats['letters_per_word'].items() if k < BIAS}
-
+		# avg retweets per tweet
 		stats['avg_retweets'] = stats['global_retweets'] / tweets_count
-
-		stats['avg_lenght'] = stats['global_length'] / tweets_count
-
-		stats['avg_lenght_wws'] = stats['global_length_wws'] / tweets_count
-
+		# avg length (chars per tweet)
+		stats['avg_length'] = stats['global_length'] / tweets_count
+		# avg words per tweet
 		stats['avg_words_count'] = stats['global_words_count'] / tweets_count
-
+		# avg sentences per tweet
 		stats['avg_sentences'] = stats['global_sentences'] / tweets_count
-
+		# unique words count
 		stats['unique_words_count'] = len(stats['uniques'].keys())
-
+		# unique words count % of all words
 		stats['unique_words_count_per'] = \
-			len(stats['uniques']) / stats['global_words_count']
-		stats['shortest_word'] = \
-			stats['letters_per_word'].get( min(stats['letters_per_word'].keys()),0)
-		stats['longest_word'] = \
-			stats['letters_per_word'].get( max(stats['letters_per_word'].keys()),0)
-		stats['avg_word_len'] = sum(stats['letters_per_word'].keys()) /\
-			sum(stats['letters_per_word'].values())
-		stats['avg_words_per_sentence'] = stats['avg_sentences'] /\
-			stats['avg_words_count']
+			stats['unique_words_count'] / stats['global_words_count']
+		#stats['avg_word_len'] = IMPLEMENT (like: 4.56 letters per word)
 
-		# Add some more sophisticated stats...
+		stats['avg_words_per_sentence'] = stats['avg_words_count'] /\
+			stats['avg_sentences']
+
+		get_key = lambda x: stats['uniques'][x]
+		stats['unique_30_most'] = sorted(stats['uniques'].keys(), reverse=True, \
+				key=get_key)[0:30]
 
 	def _get_tweets(self):
 		'''
@@ -258,9 +242,9 @@ class Stats(object):
 		HTTP_METHOD='GET'
 		POST_BODY=''
 		HTTP_HEADERS=None
-		TWEETS_TO_GET = 10
-		RESULT_TYPE = 'mixed'#'recent'
-		IDLE = 20	#seconds
+		TWEETS_TO_GET = 100
+		RESULT_TYPE = 'mixed' #'recent'
+		IDLE = 6	#seconds (< 180 requests in 15 mins window)
 		ERROR_CODES = {	'400':'Bad Request',
 						'401':'Unauthorized',
 						'403':'Forbidden',
@@ -271,13 +255,9 @@ class Stats(object):
 
 		query = (
 			'https://api.twitter.com/1.1/search/tweets.json?'
-			'q={}&count={}&result_type={}'
-			''.format(self.word, TWEETS_TO_GET, RESULT_TYPE) 
-			)	
-		if self.lang != '':
-			query += '&lang={}'.format(self.lang)
-#		if geocode != '':
-#			query += '&geocode={}'.format(geocode)
+			'q={}&count={}&result_type={}&lang={}'
+			''.format(self.word, TWEETS_TO_GET, RESULT_TYPE, self.lang) 
+			)
 
 		client = self.user.client
 
@@ -288,9 +268,13 @@ class Stats(object):
 
 		while (time.time() - start_time) <= self.time_interval:
 			#print(round(time.time() - start_time, 2))
-			resp, content = client.request( query, method=HTTP_METHOD, body=POST_BODY,	headers=HTTP_HEADERS )
+			resp, content = client.request( \
+				query, method=HTTP_METHOD, body=POST_BODY,	headers=HTTP_HEADERS )
 
-			print( '\n{}: server code {}'.format(time.ctime().split(' ')[3], resp['status']) )
+			print( '{}:\nserver answer: {}'.format( \
+				time.ctime().split(' ')[3], resp['status']) )
+			print('{} sec. remaining.'.format(round( \
+				self.time_interval-(time.time() - start_time), 2)) )
 
 
 			response = json.loads(content)
@@ -303,14 +287,13 @@ class Stats(object):
 							tweet_id.add(tweet['id'])
 							tweet_lst.append(tweet)
 					print('{} unique tweets downloaded.'.format(len(tweet_lst)))
-					time.sleep(IDLE)
+					self._idle(IDLE)
 				elif (resp['status'] == '429')and(self.time_interval > 910):
-					time.sleep(900)	# 15 minutes
+					self._idle(900)	# 15 minutes
 			else :
-				print('Twitte API Error: [{code}]:{descr}'.format(code=resp['status'], descr=ERROR_CODES[resp['status']]))
+				print('Twitte API Error: [{code}]:{descr}'.format( \
+					code=resp['status'], descr=ERROR_CODES[resp['status']]))
 				break
-
-		# ADD Remove duplicates
 
 		# Save list of tweets to file (for TEST mode)
 
@@ -322,13 +305,45 @@ class Stats(object):
 
 	@staticmethod
 	def _encrypt(s):
+		'''
+		Encrypts s string with base64 alg.
+		ADD passphrase dependent CHR replacement
+		'''
 		result = b64encode(s)
 		return result
 
 	@staticmethod
 	def _decrypt(s):
+		'''
+		Decryption. Opposite to Encryption :)
+		'''
 		result = b64decode(s)
 		return result
+
+	@staticmethod
+	def extract_words(s):
+		'''
+		Split string by white_space and Strips all the punctuation marks.
+		TODO:
+		Use word Stemming. To generalize stats (requires external module).
+		'''
+		#EXCLUDE_SET - imported from exclude.py
+		EXCLUDE_CHR = '1234567890!%^&*$()_+=-[]{}|,:;\'\"?'
+		# Excludes CHR's, 'http' from 
+		result = filter( lambda x: not x.count('http'),\
+			map( lambda x: x.strip(EXCLUDE_CHR), s.split(' ') ))
+
+		return [word for word in result if not word in EXCLUDE_SET]
+
+	@staticmethod
+	def _idle(interval):
+		left = 1
+		while left <= interval:
+			time.sleep(1)
+			stdout.write('\rpause: {} seconds left...'.format(interval-left))
+			stdout.flush()
+			left += 1
+		print('\n')
 
 
 
@@ -336,9 +351,9 @@ cur_user = User('admin')
 
 #stats = Stats('Dubai', cur_user, 2)
 
-#stats = Stats('soccer', cur_user, 60)
+stats = Stats('news', cur_user, 600)	# GOOD KEY-WORD 'news'
 
-stats = Stats('test', cur_user, 60)
+#stats = Stats('test', cur_user, 60)
 
 stats.refresh()
 
