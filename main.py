@@ -93,6 +93,7 @@ class Stats(object):
     def __init__(self, word, User, time_interval=60, tweet_language='en'):
         self.word = word
         self.user = User
+        self.tweets_count = 0
         self.time_interval = time_interval
         self.lang = tweet_language
         self._stats = {    'uniques': Counter(), 'letters_per_word': Counter(),
@@ -131,6 +132,7 @@ class Stats(object):
         Saves this to file.
         '''
         #self._gen_stats(T_list)
+
         self._gen_stats(self._get_tweets())
         self.save()
 
@@ -190,9 +192,9 @@ class Stats(object):
             f.write( Stats._encrypt(data_to_write) )
         #    f.writelines( b64encode(str(self._stats)) )
     
-    def _gen_stats(self, tweet_lst):
+    def _gen_stats(self, tweet_gen):
         '''
-        Generate stats from the data (lst of dicts) by query
+        Generate stats from the GENERATOR by query
 
             Length: 102 characters
             Length witout white-space: 85 characters
@@ -208,9 +210,8 @@ class Stats(object):
         BIAS = 20    # Max word len bias
 
         stats = self._stats
-        start_time = time.time()
 
-        for tweet in tweet_lst:
+        for tweet in tweet_gen:
 
             words = self.extract_words( tweet[u'text'].lower() )
             # Unique words
@@ -227,22 +228,22 @@ class Stats(object):
             stats['global_words_count'] += len(words)
             # Global sentences count
             stats['global_sentences'] += tweet[u'text'].count('.')
+
+        start_time = time.time()
         # Avoiding DIVISION by ZERO
-        if len(tweet_lst) <= 0:
-            tweets_count = 1
-        else:
-            tweets_count = len(tweet_lst)
+        if self.tweets_count <= 0:
+            self.tweets_count = 1
         # Remove too big words
         stats['letters_per_word'] = \
             {k:v for k,v in stats['letters_per_word'].items() if k < BIAS}
         # avg retweets per tweet
-        stats['avg_retweets'] = stats['global_retweets'] / tweets_count
+        stats['avg_retweets'] = stats['global_retweets'] / self.tweets_count
         # avg length (chars per tweet)
-        stats['avg_length'] = stats['global_length'] / tweets_count
+        stats['avg_length'] = stats['global_length'] / self.tweets_count
         # avg words per tweet
-        stats['avg_words_count'] = stats['global_words_count'] / tweets_count
+        stats['avg_words_count'] = stats['global_words_count'] / self.tweets_count
         # avg sentences per tweet
-        stats['avg_sentences'] = stats['global_sentences'] / tweets_count
+        stats['avg_sentences'] = stats['global_sentences'] / self.tweets_count
         # unique words count
         stats['unique_words_count'] = len(stats['uniques'].keys())
         # unique words count % of all words
@@ -288,11 +289,10 @@ class Stats(object):
 
         # Get as much tweets as possible during the time_interval
         start_time = time.time()
-        tweet_lst = []
         tweet_id = set()
+        self.tweets_count = 0
 
         while (time.time() - start_time) <= self.time_interval:
-            #print(round(time.time() - start_time, 2))
             resp, content = client.request( \
                 query, method=HTTP_METHOD, body=POST_BODY,    headers=HTTP_HEADERS )
 
@@ -305,12 +305,12 @@ class Stats(object):
 
             if resp['status'] == '200':
                 if 'statuses' in response.keys():
-                    #print(response['statuses'])
                     for tweet in response['statuses']:
                         if not tweet['id'] in tweet_id:    # Excludes DUPLICATES
                             tweet_id.add(tweet['id'])
-                            tweet_lst.append(tweet)
-                    print('{} unique tweets downloaded.'.format(len(tweet_lst)))
+                            yield tweet
+                            self.tweets_count += 1
+                    print('{} unique tweets downloaded.'.format(self.tweets_count))
                     self._idle(IDLE)
                 elif (resp['status'] == '429')and(self.time_interval > 910):
                     self._idle(900)    # 15 minutes
@@ -318,14 +318,6 @@ class Stats(object):
                 print('Twitte API Error: [{code}]:{descr}'.format( \
                     code=resp['status'], descr=ERROR_CODES[resp['status']]))
                 break
-
-        # Save list of tweets to file (for TEST mode)
-
-        #with open(os.path.join(WORK_DIR, self.word+'_.py'), 'w+') as f:
-        #    f.writelines('T_list=')
-        #    print>> f, tweet_lst
-
-        return tweet_lst
 
     @staticmethod
     def _encrypt(s):
@@ -377,13 +369,14 @@ cur_user = User('admin')
 
 #stats = Stats('paris', cur_user, 60)    # GOOD KEY-WORD 'news'
 
-stats = Stats('test', cur_user, 60)
+stats = Stats('test', cur_user, 20)
+stats.refresh()
 
-#stats.refresh()
-
-stats.get()
+#stats2 = Stats('words', cur_user, 20)
+#stats2.get()
 
 stats.view(0)
+#stats2.view(0)
 
 #print(stats.uniques)
 #print(stats.letters_per_word)
