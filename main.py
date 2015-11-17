@@ -7,10 +7,12 @@ Twitter statistics
 
 Log CPU & Memory usage:
 $ top -b -n 1
+$ htop
 '''
 import os
 import json
 import time
+import sys
 
 from ast import literal_eval
 from base64 import b64encode
@@ -27,53 +29,79 @@ from auth_info import *
 #ACCESS_TOKEN = <token>
 #ACCESS_TOKEN_SECRET = <token secret>
 from exclude import EXCLUDE_SET
-from test_ import T_list
 
 WORK_DIR = os.getcwd()
 
-ACCESS_RIGHTS = {'user', 'admin'}
-
-TWEET_KEYS = {u'text', u'retweet_count',}
-TWEET_USER_KEYS = {u'followers_count', u'friends_count', u'lang', u'location'}
-
+# Implement User as abstract class???
 class User(object):
     '''
-    Auth info for twiter app and access_rights
-
-    Then we can use this to send request
-    and pass this to Stats() to change its behavior accordig to 'access_rights'
+    User profile
+    It also applies DECORATOR user_stats to Stats to change it behavior according
+    to users TOKEN (rights).
     '''
-    def __init__(self, access):#login, pwd):
-        consumer = oauth2.Consumer(key=CONSUMER_KEY, secret=CONSUMER_SECRET)
-        token = oauth2.Token(key=ACCESS_TOKEN, secret=ACCESS_TOKEN_SECRET)
+    def __init__(self, user, pwd):
 
-        self.client = oauth2.Client(consumer, token)
-        # Can we use self = oauth2.Client(consumer, token) ???
+        self.user = user
+        self.pwd = pwd
+        # Below requires to be readed from encrypted file.
+        #self.__users = {'chip':'12345', 'guest':'guest', 'user':'user'}    # login:pwd
 
-        self.__token_lst = []
+        self.__rights = {'Y2hpcDoxMjM0NQ==':'admin', 'Z3Vlc3Q6Z3Vlc3Q=':'guest',
+                        'dXNlcjp1c2Vy':'user'}
+        # CHANGE THIS TO CHECK PASWORD!!!!
+        self.__access = self._get_access()
 
-        if access in ACCESS_RIGHTS:
-            self.user = access
+    def __call__(self, word):
+        '''
+        Applies DECORATOR to Stats (according to access rights)
+        '''
+        UserStats = user_stats(Stats, self.__access)
+        return UserStats(word)
 
-    def _token_list(self):
-        pass
-
-    @staticmethod
-    def _gen_token(login, pwd):
-        token = Stats._encrypt('{}:{}:{}'.format(login, pwd, access))
+    def _gen_token(self):
+        token = Stats._encrypt('{}:{}'.format(self.user, self.pwd))
         return token
 
-    @staticmethod
-    def _set_admin_token():
-        pass
+    def _get_access(self):
+        token = self._gen_token()
+        if token in self.__rights:
+            return self.__rights[token]
 
-    @staticmethod
-    def _read_token():
-        pass
+# Decorator for Stats class
+def user_stats(cls, access):
+    '''
+    Decorator for users version of Stats
 
-    @staticmethod
-    def _set_token(token):
-        pass
+    '''
+    NOT_USER_ATTRS = {'refresh','_gen_stats','_get_tweets', '_decrypt'}
+    NOT_GUEST_ATTRS = {'refresh','_gen_stats','_get_tweets', '_decrypt', 
+                        '_encrypt', 'load', 'save'}
+    print(access)
+
+    
+    class UserStats(cls):
+
+        def __init__(self, *args, **kwargs):
+
+            def error():
+                raise AttributeError
+
+            if access == 'admin':
+                super(UserStats, self).__init__(*args, **kwargs)
+
+            elif access == 'user':
+                super(UserStats, self).__init__(args[0])
+                # Delete methods/attrs that are not for USER interface
+                for attr in NOT_USER_ATTRS:
+                    setattr(self, attr, error)
+
+            else:   # guest user or None user
+                super(UserStats, self).__init__(args[0])
+                # Delete methods/attrs that are not for USER interface
+                for attr in NOT_GUEST_ATTRS:
+                    setattr(self, attr, error)
+
+    return UserStats
 
 
 class Stats(object):
@@ -90,10 +118,11 @@ class Stats(object):
     @decorator for class to give diff user rights
     '''
 
-    def __init__(self, word, User, time_interval=60, tweet_language='en'):
+    def __init__(self, word, time_interval=20, tweet_language='en'):
         self.word = word
-        self.user = User
+
         self.tweets_count = 0
+
         self.time_interval = time_interval
         self.lang = tweet_language
         self._stats = {    'uniques': Counter(), 'letters_per_word': Counter(),
@@ -131,12 +160,10 @@ class Stats(object):
         Get new Tweets and generate new stats for current word. 
         Saves this to file.
         '''
-        #self._gen_stats(T_list)
-
         self._gen_stats(self._get_tweets())
         self.save()
 
-    def view(self, print_dicts=1):
+    def view(self, print_dicts=0):
         '''
         Prints statistics in legible way
         '''
@@ -271,7 +298,7 @@ class Stats(object):
         TWEETS_TO_GET = 100
         RESULT_TYPE = 'mixed' #'recent'
         IDLE = 6    #seconds (< 180 requests in 15 mins window)
-        ERROR_CODES = {    '400':'Bad Request',
+        ERROR_CODES = { '400':'Bad Request',
                         '401':'Unauthorized',
                         '403':'Forbidden',
                         '410':'Gone',
@@ -285,7 +312,10 @@ class Stats(object):
             ''.format(self.word, TWEETS_TO_GET, RESULT_TYPE, self.lang) 
             )
 
-        client = self.user.client
+        consumer = oauth2.Consumer(key=CONSUMER_KEY, secret=CONSUMER_SECRET)
+        token = oauth2.Token(key=ACCESS_TOKEN, secret=ACCESS_TOKEN_SECRET)
+
+        client = oauth2.Client(consumer, token)
 
         # Get as much tweets as possible during the time_interval
         start_time = time.time()
@@ -352,7 +382,7 @@ class Stats(object):
         return [word for word in result if not word in EXCLUDE_SET]
 
     @staticmethod
-    def _idle(interval):
+    def _idle(interval=10):
         left = 1
         while left <= interval:
             time.sleep(1)
@@ -362,20 +392,43 @@ class Stats(object):
         print('\n')
 
 
+print('### Twitter statistics ###\n')
 
-cur_user = User('admin')
+login = raw_input('login: ')
+pwd = raw_input('password: ')
 
-#stats = Stats('Dubai', cur_user, 2)
+users_Stats_instance = User(login, pwd)
 
+#users_Stats_instance = User('chip','12345')
+#users_Stats_instance = User('guest','guest')
+
+stats = users_Stats_instance('news')
+
+while True:
+    command = raw_input('command: ')
+    if command == 'exit':
+        sys.exit()
+    else:
+        if hasattr(stats, command):
+            try:
+                getattr(stats, command)()
+            except AttributeError:
+                print('no permission to use this command')
+        else:
+            print('no such command')
+
+stats.refresh()
+#stats.get()
 #stats = Stats('paris', cur_user, 60)    # GOOD KEY-WORD 'news'
 
-stats = Stats('test', cur_user, 20)
-stats.refresh()
+#stats = Stats('test', cur_user, 20)
+#stats.refresh()
 
 #stats2 = Stats('words', cur_user, 20)
 #stats2.get()
-
-stats.view(0)
+#for item in stats.__dict__:
+#    print(item)
+#stats.view(0)
 #stats2.view(0)
 
 #print(stats.uniques)
