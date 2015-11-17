@@ -19,6 +19,8 @@ from base64 import b64encode
 from base64 import b64decode
 from collections import Counter
 from sys import stdout
+#from string import lowercase
+#from string import uppercase
 
 import oauth2
 
@@ -42,39 +44,70 @@ class User(object):
     def __init__(self, user, pwd):
 
         self.user = user
-        self.pwd = pwd
-        # Below requires to be readed from encrypted file.
-        #self.__users = {'chip':'12345', 'guest':'guest', 'user':'user'}    # login:pwd
-
-        self.__rights = {'Y2hpcDoxMjM0NQ==':'admin', 'Z3Vlc3Q6Z3Vlc3Q=':'guest',
-                        'dXNlcjp1c2Vy':'user'}
-        # CHANGE THIS TO CHECK PASWORD!!!!
+        # Protected attribures
+        self.__pwd = pwd
+        # First run:
+        #self.__set_user('^7muhIt2RoR5SVBB', 'admin')
         self.__access = self._get_access()
 
     def __call__(self, word):
         '''
-        Applies DECORATOR to Stats (according to access rights)
+        Applies DECORATOR to Stats (according to access rights).
+        returns UserStats object
         '''
         UserStats = user_stats(Stats, self.__access)
         return UserStats(word)
 
+    @property
+    def __rights(self):
+        try:
+            with open('{}/user'.format(WORK_DIR), 'r') as f:
+                encrypted_str = f.read()
+            decrypted_str = Stats._decrypt(encrypted_str)    # Decodes string
+            #print('>>>>'+decrypted_str)
+            reconst_dict = json.loads(decrypted_str)     # Reconstructs original DICT
+
+            if isinstance(reconst_dict, dict):
+                return reconst_dict
+
+        except IOError:
+            print('No user file.\n')
+
+    def admin(func):
+        if True:
+            return func
+        else:
+            return AttributeError
+
+    @admin    # passing User instance to decorator
+    def set_user(self, token, access):
+        with open('{}/user'.format(WORK_DIR), 'w+') as f:
+            rights_dict = self.__rights()
+            rights_dict.update({token:access})
+
+            data_to_write = unicode(json.dumps(rights_dict))
+            f.write( Stats._encrypt(data_to_write) )
+
+    @admin
+    def show_users(self):
+        pass
+
     def _gen_token(self):
-        token = Stats._encrypt('{}:{}'.format(self.user, self.pwd))
-        return token
+        return Stats._encrypt('{}:{}'.format(self.user, self.__pwd))
 
     def _get_access(self):
         token = self._gen_token()
         if token in self.__rights:
             return self.__rights[token]
 
-# Decorator for Stats class
+# DECORATOR for Stats class
 def user_stats(cls, access):
     '''
     Decorator for users version of Stats
 
     '''
     NOT_USER_ATTRS = {'refresh','_gen_stats','_get_tweets', '_decrypt'}
-    NOT_GUEST_ATTRS = {'refresh','_gen_stats','_get_tweets', '_decrypt', 
+    NOT_GUEST_ATTRS = {'refresh', 'get','_gen_stats','_get_tweets', '_decrypt', 
                         '_encrypt', 'load', 'save'}
     print(access)
 
@@ -83,6 +116,7 @@ def user_stats(cls, access):
 
         def __init__(self, *args, **kwargs):
 
+            @property
             def error():
                 raise AttributeError
 
@@ -118,7 +152,7 @@ class Stats(object):
     @decorator for class to give diff user rights
     '''
 
-    def __init__(self, word, time_interval=20, tweet_language='en'):
+    def __init__(self, word, time_interval=60, tweet_language='en'):
         self.word = word
 
         self.tweets_count = 0
@@ -352,26 +386,35 @@ class Stats(object):
     @staticmethod
     def _encrypt(s):
         '''
-        Encrypts s string with base64 alg.
-        ADD passphrase dependent CHR replacement
+        Encrypts s string with base64 alg + Caesar cipher.
         '''
+        def c_encode(c, n=5):
+            # Ceasar encode for single CHR
+            return chr( (((ord(c)-48) + n) % 75) + 48)
+
         result = b64encode(s)
-        return result
+ 
+        return ''.join([c_encode(c) for c in result])
 
     @staticmethod
     def _decrypt(s):
         '''
         Decryption. Opposite to Encryption :)
         '''
-        result = b64decode(s)
-        return result
+        def c_decode(c, n=5):
+            # Ceasar decode for single CHR
+            return chr( (((ord(c)-48) - n) % 75) + 48)
+
+        result = ''.join([c_decode(c) for c in s])
+
+        return b64decode(result)
 
     @staticmethod
     def extract_words(s):
         '''
         Split string by white_space and Strips all the punctuation marks.
         TODO:
-        Use word Stemming. To generalize stats (requires external module).
+        Use word Stemming to generalize stats (requires external module).
         '''
         #EXCLUDE_SET - imported from exclude.py
         EXCLUDE_CHR = '1234567890!%^&*$()_+=-[]{}|,:;\'\"?'
@@ -394,20 +437,28 @@ class Stats(object):
 
 print('### Twitter statistics ###\n')
 
-login = raw_input('login: ')
-pwd = raw_input('password: ')
+#login = raw_input('login: ')
+#pwd = raw_input('password: ')
 
-users_Stats_instance = User(login, pwd)
+#UserStats = User(login, pwd)
 
-#users_Stats_instance = User('chip','12345')
-#users_Stats_instance = User('guest','guest')
+UserStats = User('chip','12345')
+#UserStats = User('guest','guest')
+#word = raw_input('keyword: ')
 
-stats = users_Stats_instance('news')
+stats = UserStats('test')
+print(getattr(UserStats, 'set_user'))
+#stats.set_user(Stats._encrypt('user:pass'),'user')
+#stats.get()
+#stats.view()
 
+'''
 while True:
     command = raw_input('command: ')
     if command == 'exit':
         sys.exit()
+    elif command == 'set_user':
+        stats
     else:
         if hasattr(stats, command):
             try:
@@ -416,9 +467,8 @@ while True:
                 print('no permission to use this command')
         else:
             print('no such command')
+'''
 
-stats.refresh()
-#stats.get()
 #stats = Stats('paris', cur_user, 60)    # GOOD KEY-WORD 'news'
 
 #stats = Stats('test', cur_user, 20)
@@ -428,7 +478,6 @@ stats.refresh()
 #stats2.get()
 #for item in stats.__dict__:
 #    print(item)
-#stats.view(0)
 #stats2.view(0)
 
 #print(stats.uniques)
