@@ -73,8 +73,8 @@ class User(object):
         except IOError:
             print('No user file.\n')
 
-    def admin(func):
-        if True:
+    def admin(func, on=True):
+        if on:
             return func
         else:
             return AttributeError
@@ -84,13 +84,13 @@ class User(object):
         with open('{}/user'.format(WORK_DIR), 'w+') as f:
             rights_dict = self.__rights()
             rights_dict.update({token:access})
-
-            data_to_write = unicode(json.dumps(rights_dict))
-            f.write( Stats._encrypt(data_to_write) )
+            if len(rights_dict) > 0:
+                data_to_write = unicode(json.dumps(rights_dict))
+                f.write( Stats._encrypt(data_to_write) )
 
     @admin
     def show_users(self):
-        pass
+        print(self.__rights)
 
     def _gen_token(self):
         return Stats._encrypt('{}:{}'.format(self.user, self.__pwd))
@@ -446,8 +446,15 @@ UserStats = User('chip','12345')
 #UserStats = User('guest','guest')
 #word = raw_input('keyword: ')
 
-stats = UserStats('test')
-print(getattr(UserStats, 'set_user'))
+UserStats.show_users()
+token = Stats._encrypt('user:pass')
+print(token)
+raw_input('pause')
+UserStats.set_user(token,'user')
+UserStats.show_users()
+
+#stats = UserStats('test')
+#print(getattr(UserStats, 'set_user'))
 #stats.set_user(Stats._encrypt('user:pass'),'user')
 #stats.get()
 #stats.view()
