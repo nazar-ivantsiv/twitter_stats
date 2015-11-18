@@ -55,6 +55,11 @@ class User(object):
         return UserStats(word)
 
     @property
+    def access(self):
+        return self.__access
+    
+
+    @property
     def __rights(self):
         try:
             with open('{}/user'.format(WORK_DIR), 'r') as f:
@@ -69,7 +74,7 @@ class User(object):
         except IOError:
             print('No user file.\n')
 
-    def admin(func, on=True):
+    def admin(func, on=False):
         if on:
             return func
         else:
@@ -77,7 +82,7 @@ class User(object):
 
     @admin    # passing User instance to decorator
     def set_user(self, token, access):
-        rights_dict = self.__rights()
+        rights_dict = self.__rights
         rights_dict.update({token:access})
         if len(rights_dict) > 0:
             with open('{}/user'.format(WORK_DIR), 'w+') as f:        
@@ -103,33 +108,36 @@ def user_stats(cls, access):
 
     '''
     NOT_USER_ATTRS = {'refresh','_gen_stats','_get_tweets', '_decrypt'}
-    NOT_GUEST_ATTRS = {'refresh', 'get','_gen_stats','_get_tweets', '_decrypt', 
-                        '_encrypt', 'load', 'save'}
-    print(access)
+    NOT_GUEST_ATTRS = {'refresh', '_gen_stats','_get_tweets', '_decrypt', 
+                        '_encrypt', 'get', 'load', 'save'}
+    #print(access)
 
     
     class UserStats(cls):
 
         def __init__(self, *args, **kwargs):
 
-            @property
             def error():
                 raise AttributeError
 
             if access == 'admin':
                 super(UserStats, self).__init__(*args, **kwargs)
+                self.authorised = True
+
 
             elif access == 'user':
                 super(UserStats, self).__init__(args[0])
                 # Delete methods/attrs that are not for USER interface
                 for attr in NOT_USER_ATTRS:
                     setattr(self, attr, error)
+                self.authorised = True
 
             else:   # guest user or None user
                 super(UserStats, self).__init__(args[0])
                 # Delete methods/attrs that are not for USER interface
                 for attr in NOT_GUEST_ATTRS:
                     setattr(self, attr, error)
+                self.authorised = False
 
     return UserStats
 
@@ -433,48 +441,75 @@ class Stats(object):
 
 print('### Twitter statistics ###\n')
 
-#login = raw_input('login: ')
-#pwd = raw_input('password: ')
+### LOGIN ###
+login = raw_input('login: ')
+pwd = raw_input('password: ')
 
-#UserStats = User(login, pwd)
+UserStats = User(login, pwd)
+#UserStats = User('chip','12345')
 
-UserStats = User('chip','12345')
-#UserStats = User('guest','guest')
-#word = raw_input('keyword: ')
+# Initial instance
+word = raw_input('keyword: ')
+if word == '':
+    stats = UserStats('test')
+else:
+    stats = UserStats(word)
 
-UserStats.show_users()
-token = Stats._encrypt('user:pass')
+if stats.authorised:
+    print('\nWelcome, {}!'.format(UserStats.user))
+else:
+    print('\n### Limited access. ###\n' 
+          'Logged in as \'guest\'.')
+############
 
-UserStats.set_user(token,'user')
-UserStats.show_users()
-
-#stats = UserStats('test')
-#print(getattr(UserStats, 'set_user'))
-#stats.set_user(Stats._encrypt('user:pass'),'user')
-#stats.get()
-#stats.view()
-
-'''
+### USER INTERFACE ###
 while True:
-    command = raw_input('command: ')
-    if command == 'exit':
+    command = raw_input('\n({}) >>> '.format(stats.word.upper()))
+
+    if command == 'new':
+        word = raw_input('  keyword: ')
+        print('Keyword changed to {}:'.format(word))
+        stats = UserStats(word)
+        stats.get()
+        continue
+    elif command == 'time':
+        time = raw_input('  time interval (sec): ')
+        stats.time_interval = int(time)
+        continue
+
+    elif command == 'exit':
         sys.exit()
-    elif command == 'set_user':
-        stats
+
     else:
         if hasattr(stats, command):
             try:
                 getattr(stats, command)()
             except AttributeError:
                 print('no permission to use this command')
+            except TypeError:   # Works in case if the attr is not CALLABLE
+                try:
+                    print(getattr(stats, command))
+                except AttributeError:
+                    print('no permission to use get this attribute')
         else:
             print('no such command')
-'''
+####################
+
+#print(getattr(UserStats, 'set_user'))
+#stats.set_user(Stats._encrypt('user:pass'),'user')
+#stats.get()
+#stats.view()
+
+
+#UserStats.show_users()
+#token = Stats._encrypt('user:pass')
+#UserStats.set_user(token,'user')
+#UserStats.show_users()
 
 #stats = Stats('paris', cur_user, 60)    # GOOD KEY-WORD 'news'
 
 #stats = Stats('test', cur_user, 20)
-stats.refresh()
+#stats.refresh()
 
 #stats2 = Stats('words', cur_user, 20)
 #stats2.get()
