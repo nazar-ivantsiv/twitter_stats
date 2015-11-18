@@ -4,10 +4,6 @@ from __future__ import division
 
 '''
 Twitter statistics
-
-Log CPU & Memory usage:
-$ top -b -n 1
-$ htop
 '''
 import os
 import json
@@ -81,10 +77,10 @@ class User(object):
 
     @admin    # passing User instance to decorator
     def set_user(self, token, access):
-        with open('{}/user'.format(WORK_DIR), 'w+') as f:
-            rights_dict = self.__rights()
-            rights_dict.update({token:access})
-            if len(rights_dict) > 0:
+        rights_dict = self.__rights()
+        rights_dict.update({token:access})
+        if len(rights_dict) > 0:
+            with open('{}/user'.format(WORK_DIR), 'w+') as f:        
                 data_to_write = unicode(json.dumps(rights_dict))
                 f.write( Stats._encrypt(data_to_write) )
 
@@ -142,17 +138,17 @@ class Stats(object):
     '''
     name = word from query
     time = period to get as much tweets as it can.
-    get_tweets method (@statisticmethod) - authenticates to Twitter with TwitterAccount, gets 
-    TweetContainer - set() to avoid duplicates
-    calculate statistics METHODs (get unit of Tweet class)
+    _get_tweets - method (generator) - authenticates to Twitter get tweets without
+        duplicates.
+    _gen_stats - calculate statistics METHODs
     statistic ATTRIBUTES
-    encode() method
+    encrypt()/decrypt() method
     save to file method
     read from file METHOD
-    @decorator for class to give diff user rights
+    @decorator for class to give diff user rights (UserStats() - wrapper)
     '''
 
-    def __init__(self, word, time_interval=60, tweet_language='en'):
+    def __init__(self, word, time_interval=30, tweet_language='en'):
         self.word = word
 
         self.tweets_count = 0
@@ -384,28 +380,28 @@ class Stats(object):
                 break
 
     @staticmethod
-    def _encrypt(s):
+    def _encrypt(s, code=5):
         '''
         Encrypts s string with base64 alg + Caesar cipher.
         '''
-        def c_encode(c, n=5):
+        def c_encode(c, code):
             # Ceasar encode for single CHR
-            return chr( (((ord(c)-48) + n) % 75) + 48)
+            return chr( (((ord(c)-48) + code) % 75) + 48)
 
         result = b64encode(s)
  
-        return ''.join([c_encode(c) for c in result])
+        return ''.join([c_encode(c, code) for c in result])
 
     @staticmethod
-    def _decrypt(s):
+    def _decrypt(s, code=5):
         '''
         Decryption. Opposite to Encryption :)
         '''
-        def c_decode(c, n=5):
+        def c_decode(c, code):
             # Ceasar decode for single CHR
-            return chr( (((ord(c)-48) - n) % 75) + 48)
+            return chr( (((ord(c)-48) - code) % 75) + 48)
 
-        result = ''.join([c_decode(c) for c in s])
+        result = ''.join([c_decode(c, code) for c in s])
 
         return b64decode(result)
 
@@ -448,8 +444,7 @@ UserStats = User('chip','12345')
 
 UserStats.show_users()
 token = Stats._encrypt('user:pass')
-print(token)
-raw_input('pause')
+
 UserStats.set_user(token,'user')
 UserStats.show_users()
 
@@ -479,7 +474,7 @@ while True:
 #stats = Stats('paris', cur_user, 60)    # GOOD KEY-WORD 'news'
 
 #stats = Stats('test', cur_user, 20)
-#stats.refresh()
+stats.refresh()
 
 #stats2 = Stats('words', cur_user, 20)
 #stats2.get()
