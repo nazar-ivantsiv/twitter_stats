@@ -4,19 +4,23 @@ from __future__ import division
 
 '''
 Twitter statistics
+
+Author:
+Nazar Ivantsiv
 '''
+
 import os
 import json
 import time
 import sys
 
-from ast import literal_eval
+#from ast import literal_eval
 from base64 import b64encode
 from base64 import b64decode
 from collections import Counter
-from sys import stdout
-#from string import lowercase
-#from string import uppercase
+from getpass import getpass
+from inspect import getmembers
+from inspect import ismethod
 
 import oauth2
 
@@ -30,21 +34,36 @@ from exclude import EXCLUDE_SET
 
 WORK_DIR = os.getcwd()
 
-# Implement User as abstract class???
+
+def only_for_admin(func):
+    '''
+    DECORATOR: Admin tools extender.
+    Wrapper is used only to reach functions argument 'self'
+    '''
+    def wrapper(self, *args, **kwargs):
+        if self.access == 'admin':
+            return func(self, *args, **kwargs)
+        else:
+            return AttributeError
+    return wrapper
+
+
 class User(object):
     '''
-    User profile
-    It also applies DECORATOR user_stats to Stats to change it behavior according
-    to users TOKEN (rights).
+    User's profile.
+    It also applies DECORATOR user_stats to Stats on creation to change its 
+    behavior according to users TOKEN (rights).
     '''
+
     def __init__(self, user, pwd):
 
-        self.user = user
-        # Protected attribures
-        self.__pwd = pwd
+        # Privat attributes
+        self._token = self._gen_token(user, pwd)
         # First run:
-        #self.__set_user('^7muhIt2RoR5SVBB', 'admin')
-        self.__access = self._get_access()
+        #self.set_user('^7muhIt2RoR5SVBB', 'admin')
+        # Protected attributes
+        self.__def_rights = ['admin', 'user']   # Default access options
+        self.__access = self._get_access()      # Get current user access
 
     def __call__(self, word):
         '''
@@ -58,9 +77,16 @@ class User(object):
     def access(self):
         return self.__access
     
+    @property
+    def user_name(self):
+        return Stats._decrypt(self._token).split(':')[0]
+    
 
     @property
     def __rights(self):
+        '''
+        Returns dict of token:user_rights ({'user_token':'admin'})
+        '''
         try:
             with open('{}/user'.format(WORK_DIR), 'r') as f:
                 encrypted_str = f.read()
@@ -73,33 +99,83 @@ class User(object):
 
         except IOError:
             print('No user file.\n')
+            return ''
 
-    def admin(func, on=False):
-        if on:
-            return func
-        else:
-            return AttributeError
+    def _get_access(self):
+        if self._token in self.__rights:
+            return self.__rights[self._token]
 
-    @admin    # passing User instance to decorator
-    def set_user(self, token, access):
+    @only_for_admin
+    def set_user(self):
+        self.show_users()
+
+        user_name = raw_input('user name: ')
+        user_pwd = getpass('user password: ')
+        token = self._gen_token(user_name, user_pwd)
+        access = self.choose(self.__def_rights)
+        print('new user credentials: {}:{}'.format(token, access))
+
         rights_dict = self.__rights
         rights_dict.update({token:access})
         if len(rights_dict) > 0:
             with open('{}/user'.format(WORK_DIR), 'w+') as f:        
-                data_to_write = unicode(json.dumps(rights_dict))
+                data_to_write = json.dumps(rights_dict)
                 f.write( Stats._encrypt(data_to_write) )
 
-    @admin
+    @only_for_admin
+    def del_user(self):
+        name_lst, pwd_lst = self.show_users()
+        rights_dict = self.__rights
+        try:
+            user_name = raw_input('user name: ')
+            if user_name in name_lst:                
+                user_token = self._gen_token( \
+                    user_name, pwd_lst[ name_lst.index(user_name) ] )
+                if user_token in rights_dict:
+                    rights_dict.pop(user_token)            
+                else:
+                    raise KeyError
+        except KeyError:
+            print('no such user')
+        else:
+            print(self.__rights)
+            with open('{}/user'.format(WORK_DIR), 'w+') as f:        
+                data_to_write = json.dumps(rights_dict)
+                f.write( Stats._encrypt(data_to_write) )           
+
+
+    @only_for_admin
     def show_users(self):
-        print(self.__rights)
+        '''
+        Prints username : password : access
+        And returns names and passwords lists
+        '''
+        name_lst = []
+        pwd_lst = []
+        for token, access in self.__rights.items():
+            name = Stats._decrypt(token).split(':')[0]
+            name_lst.append(name)
+            pwd = Stats._decrypt(token).split(':')[1]
+            pwd_lst.append(pwd)
+            print('{} : {} : {}'.format(access, name, pwd))
+        return name_lst, pwd_lst
 
-    def _gen_token(self):
-        return Stats._encrypt('{}:{}'.format(self.user, self.__pwd))
+    @staticmethod
+    def _gen_token(user_name, user_pwd):
+        return Stats._encrypt('{}:{}'.format(user_name, user_pwd))
 
-    def _get_access(self):
-        token = self._gen_token()
-        if token in self.__rights:
-            return self.__rights[token]
+    @staticmethod
+    def choose(options_list):
+        while True:
+            for tup_item in enumerate(options_list):
+                print('{}: {}'.format(*tup_item))
+            try:
+                print('choose from options above')
+                answer = int(raw_input('    answer: '))
+                if answer in range(len(options_list)):
+                    return answer
+            except TypeError:
+                continue
 
 # DECORATOR for Stats class
 def user_stats(cls, access):
@@ -107,9 +183,10 @@ def user_stats(cls, access):
     Decorator for users version of Stats
 
     '''
-    NOT_USER_ATTRS = {'refresh','_gen_stats','_get_tweets', '_decrypt'}
-    NOT_GUEST_ATTRS = {'refresh', '_gen_stats','_get_tweets', '_decrypt', 
-                        '_encrypt', 'get', 'load', 'save'}
+    # User can NOT save stats
+    NOT_USER_ATTRS = {'refresh', 'save'}
+    # Guest can do almost nothing, only view =)
+    NOT_GUEST_ATTRS = {'refresh', '_decrypt', '_encrypt', 'get', 'save'} 
     #print(access)
 
     
@@ -163,17 +240,31 @@ class Stats(object):
 
         self.time_interval = time_interval
         self.lang = tweet_language
-        self._stats = {    'uniques': Counter(), 'letters_per_word': Counter(),
+        self._stats = { 'uniques': Counter(), 'letters_per_word': Counter(),
                         'origin': Counter(), 'global_retweets':0, 
                         'global_length':0, 'global_words_count':1, 
-                        'global_sentences':0 }
+                        'global_sentences':0, 'unique_30_most':[] }
+
+    @property
+    def sentence(self):
+        '''
+        Generates human readable sentence of 30 words (generalization of tweets)
+        '''
+        return ' '.join(self._stats['unique_30_most'])
+
 
     @property
     def uniques(self):
+        '''
+        Property to make class interface user friendly
+        '''
         return self._stats['uniques']
 
     @property
     def letters_per_word(self):
+        '''
+        Property to make class interface user friendly
+        '''
         return self._stats['letters_per_word']
 
     @property
@@ -185,11 +276,12 @@ class Stats(object):
 
     def get(self):
         '''
-        Load tweets from file if it exists or run .refresh() method otherwise
+        Load tweets from file if it exists or runs get NEW stats otherwise. 
+        DIDN'T SAVE THE RESULTS! (self.save() - required)
         '''
         path = '{}/stats/{}.data'.format(WORK_DIR, self.word) 
         if not os.path.isfile(path):    # Check if FILE exist
-            self.refresh()
+            self._gen_stats(self._get_tweets())
         else:
             self.load()
 
@@ -253,9 +345,8 @@ class Stats(object):
             os.makedirs(path)
 
         with open('{}{}.data'.format(path, self.word), 'w+') as f:
-            data_to_write = unicode(json.dumps(self._stats))
+            data_to_write = json.dumps(self._stats)
             f.write( Stats._encrypt(data_to_write) )
-        #    f.writelines( b64encode(str(self._stats)) )
     
     def _gen_stats(self, tweet_gen):
         '''
@@ -430,95 +521,104 @@ class Stats(object):
 
     @staticmethod
     def _idle(interval=10):
+        '''
+        Advenced sleep func, with status printed.
+        '''
         left = 1
         while left <= interval:
             time.sleep(1)
-            stdout.write('\rpause: {} seconds left...'.format(interval-left))
-            stdout.flush()
+            sys.stdout.write('\rpause: {} seconds left...'.format(interval-left))
+            sys.stdout.flush()
             left += 1
         print('\n')
 
 
+def login():
+    login = raw_input('login: ')
+    pwd = getpass('password: ')
+
+    return User(login, pwd)
+
 print('### Twitter statistics ###\n')
 
 ### LOGIN ###
-login = raw_input('login: ')
-pwd = raw_input('password: ')
-
-UserStats = User(login, pwd)
+UserStats = login()
 #UserStats = User('chip','12345')
 
-# Initial instance
+# Create initial instance of Stats
 word = raw_input('keyword: ')
 if word == '':
     stats = UserStats('test')
 else:
     stats = UserStats(word)
 
+# Generate list of commands
+extra_commands = ['new','time','set_user', 'del_user']
+command_list = [name for name, value in getmembers(stats) if name[0] != '_']
+
+# Print WELCOME message, add commad list
 if stats.authorised:
-    print('\nWelcome, {}!'.format(UserStats.user))
+    print('\nWelcome, {}!\n'.format(UserStats.user_name))
+    command_list.extend(extra_commands)
 else:
     print('\n### Limited access. ###\n' 
           'Logged in as \'guest\'.')
+    Stats.get(stats)    # Gets stats for GUEST user keyword (only at start)
 ############
 
-### USER INTERFACE ###
+### Command Line INTERFACE ###
+def execute(instance, command):
+    '''
+    Execute instance method or print attribute
+    '''
+    if hasattr(instance, command):
+        try:
+            getattr(instance, command)()
+        except AttributeError:
+            print('no permission to use this command')
+        except TypeError:   # Works in case if the attr is not CALLABLE
+            try:
+                print(getattr(instance, command))
+            except AttributeError:
+                print('no permission to use get this attribute')
+    else:
+        print('no such command')
+
+def show_commands(options_list):
+    print('\nchoose commands:\n'
+          '|'),
+    for item in options_list:
+        print('{} |'.format(item)),
+
+
 while True:
+    show_commands(command_list)
+
     command = raw_input('\n({}) >>> '.format(stats.word.upper()))
 
-    if command == 'new':
+    # new
+    if (command == extra_commands[0])and(stats.authorised):
         word = raw_input('  keyword: ')
         print('Keyword changed to {}:'.format(word))
         stats = UserStats(word)
         stats.get()
         continue
-    elif command == 'time':
+    # time
+    elif (command == extra_commands[1])and(stats.authorised):
         time = raw_input('  time interval (sec): ')
         stats.time_interval = int(time)
         continue
+    # set_user
+    elif command == extra_commands[2]:
+        execute(UserStats, extra_commands[2])
+    # del_user
+    elif command == extra_commands[3]:
+        execute(UserStats, extra_commands[3])
 
-    elif command == 'exit':
+    if command == 'exit':
         sys.exit()
 
     else:
-        if hasattr(stats, command):
-            try:
-                getattr(stats, command)()
-            except AttributeError:
-                print('no permission to use this command')
-            except TypeError:   # Works in case if the attr is not CALLABLE
-                try:
-                    print(getattr(stats, command))
-                except AttributeError:
-                    print('no permission to use get this attribute')
-        else:
-            print('no such command')
-####################
+        execute(stats, command)
 
-#print(getattr(UserStats, 'set_user'))
-#stats.set_user(Stats._encrypt('user:pass'),'user')
-#stats.get()
-#stats.view()
-
-
-#UserStats.show_users()
-#token = Stats._encrypt('user:pass')
-#UserStats.set_user(token,'user')
-#UserStats.show_users()
-
-#stats = Stats('paris', cur_user, 60)    # GOOD KEY-WORD 'news'
-
-#stats = Stats('test', cur_user, 20)
-#stats.refresh()
-
-#stats2 = Stats('words', cur_user, 20)
-#stats2.get()
-#for item in stats.__dict__:
-#    print(item)
-#stats2.view(0)
-
-#print(stats.uniques)
-#print(stats.letters_per_word)
-#print(stats.letters_per_word)
-
-#stats.save()
+##################
