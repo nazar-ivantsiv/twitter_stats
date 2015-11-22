@@ -1,5 +1,6 @@
 #!bin/python
 # -*- coding: utf-8 -*-
+import json
 
 from getpass import getpass
 from inspect import getmembers
@@ -7,6 +8,8 @@ from inspect import ismethod
 
 from languages import languages
 from twitter_stats import *
+
+HELP_LANGUAGES_URL = 'https://api.twitter.com/1.1/help/languages.json'
 
 def login():
     login = raw_input('login: ')
@@ -38,6 +41,15 @@ def show_commands(options_list):
     for item in options_list:
         print('{} |'.format(item)),
 
+def get_lang_list():
+    client = Stats.set_client()
+    resp, content = \
+        client.request(HELP_LANGUAGES_URL)
+    if resp['status'] == '200':
+        return json.loads(content)
+    else:
+        return {}
+
 def show_lang(lang_dict, carriage_return=True):
     if carriage_return:
         print('| {:<20} : {:<5} |'.format( \
@@ -52,7 +64,7 @@ def show_lang_list(lang_list):
     for item in lang_list:
         show_lang(item, carr_ret)
         carr_ret = not carr_ret
- 
+
 
 print('### Twitter statistics ###\n')
 
@@ -66,7 +78,8 @@ if word == '':
 else:
     stats = UserStats(word)
 
-# Generate list of commands
+# Generate list of commands, languages
+languages = get_lang_list()
 extra_commands = ['new','time','set_user', 'del_user', 'change_lang']
 exclude = ['authorised', 'extract_words', 'tweets_count', 'client', 'set_client']
 command_list = [name for name, value in getmembers(stats) if (name[0] != '_') \
