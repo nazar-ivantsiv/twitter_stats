@@ -16,6 +16,7 @@ import sys
 from base64 import b64encode
 from base64 import b64decode
 from collections import Counter
+from getpass import getpass
 
 import oauth2
 
@@ -27,6 +28,7 @@ from auth_info import *
 #ACCESS_TOKEN_SECRET = <token secret>
 
 from exclude import EXCLUDE_SET
+from languages import languages
 
 WORK_DIR = os.getcwd()
 
@@ -167,7 +169,7 @@ class User(object):
                 print('choose from options above')
                 answer = int(raw_input('    answer: '))
                 if answer in range(len(options_list)):
-                    return answer
+                    return options_list[answer]
             except TypeError:
                 continue
 
@@ -214,22 +216,19 @@ def user_stats(cls, access):
 
 class Stats(object):
     '''
-    name = word from query
-    time = period to get as much tweets as it can.
-    _get_tweets - method (generator) - authenticates to Twitter get tweets without
-        duplicates.
-    _gen_stats - calculate statistics METHODs
-    statistic ATTRIBUTES
-    encrypt()/decrypt() method
-    save to file method
-    read from file METHOD
-    @decorator for class to give diff user rights (UserStats() - wrapper)
+    Tweets statistics routines
+
+    word - word for query
+    time - period to get as much tweets as it can.
+    tweet_language - language of tweets
     '''
 
     def __init__(self, word, time_interval=30, tweet_language='en'):
         self.word = word
 
         self.tweets_count = 0
+        # Create Twitter API client instance
+        self.client = self.set_client()
 
         self.time_interval = time_interval
         self.lang = tweet_language
@@ -244,7 +243,6 @@ class Stats(object):
         Generates human readable sentence of 30 words (generalization of tweets)
         '''
         return ' '.join(self._stats['unique_30_most'])
-
 
     @property
     def uniques(self):
@@ -289,6 +287,7 @@ class Stats(object):
     def view(self, print_dicts=0):
         '''
         Prints statistics in legible way
+        print_dicts - enables printing of large dictionaries
         '''
         print('Statistics by word: {}'.format(self.word.upper()) )
         get_key = lambda x: x[1]    # Second element of tuple as sort key
@@ -298,7 +297,8 @@ class Stats(object):
                 if print_dicts:
                     print(u'\n[{key}]:\n'.format(key=key))
 
-                    for key2, value2 in sorted(value.items(), reverse=True, key=get_key):
+                    for key2, value2 in sorted(value.items(), \
+                                               reverse=True, key=get_key):
                         if value2 > 1:
                             print(u'{key}: {value}'.format(key=key2, value=value2))
             elif isinstance(value, list):
@@ -344,21 +344,12 @@ class Stats(object):
         '''
         Generate stats from the GENERATOR by query
 
-            Length: 102 characters
-            Length witout white-space: 85 characters
-            Words: 18
-            Sentences: 1
-            Unique words: 17
-            Unique words(%): 94%
-            Length of shortest word: 2 characters
-            Length of longest word: 9 characters
-            Avg. word length: 4.72
-            Avg. words per sentence: 18  
+        tweet_gen - generator or iterable of tweets 
         '''
         BIAS = 20    # Max word len bias
 
         stats = self._stats
-
+        
         for tweet in tweet_gen:
 
             words = self.extract_words( tweet[u'text'].lower() )
@@ -378,7 +369,6 @@ class Stats(object):
             stats['global_sentences'] += tweet[u'text'].count('.')
 
         start_time = time.time()
-        # Avoiding DIVISION by ZERO
         if self.tweets_count <= 0:
             self.tweets_count = 1
         # Remove too big words
@@ -398,7 +388,8 @@ class Stats(object):
         stats['unique_words_count_per'] = \
             stats['unique_words_count'] / stats['global_words_count']
         #stats['avg_word_len'] = IMPLEMENT (like: 4.56 letters per word)
-
+        if self.tweets_count == 1:
+            stats['avg_sentences'] = 1
         stats['avg_words_per_sentence'] = stats['avg_words_count'] /\
             stats['avg_sentences']
 
@@ -409,13 +400,9 @@ class Stats(object):
 
     def _get_tweets(self):
         '''
-        word - word to seek for 
-        time - time interval
+        Get tweets from Twitter REST API
         '''
         # Create query
-        HTTP_METHOD='GET'
-        POST_BODY=''
-        HTTP_HEADERS=None
         TWEETS_TO_GET = 100
         RESULT_TYPE = 'mixed' #'recent'
         IDLE = 6    #seconds (< 180 requests in 15 mins window)
@@ -433,19 +420,14 @@ class Stats(object):
             ''.format(self.word, TWEETS_TO_GET, RESULT_TYPE, self.lang) 
             )
 
-        consumer = oauth2.Consumer(key=CONSUMER_KEY, secret=CONSUMER_SECRET)
-        token = oauth2.Token(key=ACCESS_TOKEN, secret=ACCESS_TOKEN_SECRET)
-
-        client = oauth2.Client(consumer, token)
-
         # Get as much tweets as possible during the time_interval
         start_time = time.time()
         tweet_id = set()
         self.tweets_count = 0
 
         while (time.time() - start_time) <= self.time_interval:
-            resp, content = client.request( \
-                query, method=HTTP_METHOD, body=POST_BODY,    headers=HTTP_HEADERS )
+
+            resp, content = self.client.request(query)
 
             print( '{}:\nserver answer: {}'.format( \
                 time.ctime().split(' ')[3], resp['status']) )
@@ -469,6 +451,17 @@ class Stats(object):
                 print('Twitte API Error: [{code}]:{descr}'.format( \
                     code=resp['status'], descr=ERROR_CODES[resp['status']]))
                 break
+
+    @staticmethod
+    def set_client(key=CONSUMER_KEY, secret=CONSUMER_SECRET, \
+                   acc_key=ACCESS_TOKEN, acc_secret=ACCESS_TOKEN_SECRET):
+        '''
+        Creates Twitter API Client as self.client
+        '''
+        consumer = oauth2.Consumer(key=key, secret=secret)
+        token = oauth2.Token(key=acc_key, secret=acc_secret)
+
+        return oauth2.Client(consumer, token)
 
     @staticmethod
     def _encrypt(s, code=5):
