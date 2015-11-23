@@ -5,9 +5,11 @@ import json
 from getpass import getpass
 from inspect import getmembers
 from inspect import ismethod
+from sys import exit
 
-from languages import languages
-from twitter_stats import *
+from twitter_stats import User
+from twitter_stats import Stats
+
 
 HELP_LANGUAGES_URL = 'https://api.twitter.com/1.1/help/languages.json'
 
@@ -78,9 +80,12 @@ if word == '':
 else:
     stats = UserStats(word)
 
-# Generate list of commands, languages
+# Generate actual list of languages available
 languages = get_lang_list()
+# Generate list of commands
+basic_commands = ['help', 'exit']
 extra_commands = ['new','time','set_user', 'del_user', 'change_lang']
+
 exclude = ['authorised', 'extract_words', 'tweets_count', 'client', 'set_client']
 command_list = [name for name, value in getmembers(stats) if (name[0] != '_') \
                 and(name not in exclude)]
@@ -88,11 +93,13 @@ command_list = [name for name, value in getmembers(stats) if (name[0] != '_') \
 # Print WELCOME message, add commad list
 if stats.authorised:
     print('\nWelcome, {}!\n'.format(UserStats.user_name))
+    command_list[0:0] = basic_commands
     command_list.extend(extra_commands)
 else:
     print('\n### Limited access. ###\n' 
           'Logged in as \'guest\'.')
     Stats.get(stats)    # Gets stats for GUEST user keyword (only at start)
+    command_list[0:0] = basic_commands
 
 ############
 
@@ -133,9 +140,18 @@ while True:
         else:
             print('wrong code!')
         continue
-
-    elif command == 'exit':
-        sys.exit()
+    # help
+    elif command == basic_commands[0]:
+        cmd = raw_input('   for command: ')
+        try:
+            attr_inst = getattr(Stats, cmd)
+            print(attr_inst.__doc__)
+            raw_input('press any key...')
+        except AttributeError:
+            print('no help available :(')
+    # exit
+    elif command == basic_commands[1]:
+        exit()
 
     else:
         execute(stats, command)

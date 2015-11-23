@@ -32,7 +32,7 @@ from languages import languages
 
 WORK_DIR = os.getcwd()
 
-
+# DECORATOR for Admin Tools
 def only_for_admin(func):
     '''
     DECORATOR: Admin tools extender.
