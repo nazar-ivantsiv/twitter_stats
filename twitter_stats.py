@@ -148,6 +148,8 @@ class User(object):
         '''
         name_lst = []
         pwd_lst = []
+        print('existing users:\n'
+              'ACCESS : NAME : PASSWORD')
         for token, access in self.__rights.items():
             name = Stats._decrypt(token).split(':')[0]
             name_lst.append(name)
