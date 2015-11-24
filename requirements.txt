@@ -1,2 +1,2 @@
 oauth2
-auth_info - twitter app credentials
+auth_info.py - twitter app credentials
